@@ -99,14 +99,18 @@ def set_decoder_params(model, p, dims):
     model.set_decoder_ln_gamma(p[f'decoder.ln.weight'])
     model.set_decoder_ln_beta(p[f'decoder.ln.bias'])
     Wdetokenizer = p[f'decoder.token_embedding.weight'].T
+    # print(Wdetokenizer.shape)
     n_vocab = next_multiple_of_3(dims.n_vocab)
     slice_len = n_vocab // 3
     model.set_detokenizer0(Wdetokenizer[:, :slice_len])
     model.set_detokenizer1(Wdetokenizer[:, slice_len:2*slice_len])
     extra_columns = n_vocab - dims.n_vocab
     third_slice = Wdetokenizer[:, 2*slice_len:]
+    print(extra_columns)
+    print(third_slice.shape)
     if extra_columns:
         third_slice = np.concatenate([third_slice, np.zeros_like(third_slice[:, :extra_columns])], -1)
+    print(third_slice.shape)
     model.set_detokenizer2(third_slice)
 
 
@@ -118,6 +122,8 @@ class WhisperModel(object):
         params = {k.split('/')[-1]:v for k, v in params_file.items() if k.startswith('params/')}
 
         dims = ModelDimensions(**dims)
+        #print dims
+        print(f'Loading model with dimensions {dims}')
         n_vocab = next_multiple_of_3(dims.n_vocab)
         self.model = CWhisperModel(dims.n_mels,
                                    dims.n_audio_ctx,
@@ -188,6 +194,14 @@ class WhisperModel(object):
             assert src_lang in self.lang_dict, f'{src_lang} is not a supported language'
             initial_prompt[1] = self.lang_dict[src_lang]
             if task == 'translate': initial_prompt[2] = self.tokenizer.translate
+            
+            # if src_lang == 'zh' and task == 'transcribe': 
+            #     initial_prompt2 = initial_prompt.copy()
+            #     initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + '小爱机器人。赤兔机器人。开始充电。停止导航。结束。开始。我是谁。intel的。M系列。'.strip())))
+                                      
+            #     initial_prompt.extend(initial_prompt2)
+            #     # initial_prompt.extend(tuple(self.tokenizer.encode('以下的是普通话的句子，'.strip())))
+            
         if self.verbose:
             print(f'{initial_prompt} {self.tokenizer.decode(initial_prompt)}')
         for p in initial_prompt:
@@ -196,17 +210,30 @@ class WhisperModel(object):
         logprobs = self.model.log_softmax(initial_suppress_tokens).view(np.float16)
 
         decoded_tokens = [np.argmax(logprobs)]
+        # print(decoded_tokens)
+        # print(len(logprobs))
+        # print(logprobs[51865])
+        # print(logprobs[51866])
+        # print(logprobs[tokenizer.eot])
+        # print(self.tokenizer.decode(decoded_tokens))
+        # print(self.tokenizer.decode(initial_suppress_tokens))
+        
 
         while len(decoded_tokens) < 224:
             self.model.call_no_copy(decoded_tokens[-1])
             logprobs = self.model.log_softmax(suppress_tokens).view(np.float16)
             speech_token = np.argmax(logprobs[:tokenizer.eot])
+            # print([speech_token])
+            # print(self.tokenizer.decode([speech_token]))
             speech_logprob = logprobs[speech_token]
             eot_logprob = logprobs[tokenizer.eot]
-
+            # print(speech_logprob)
+            # print(eot_logprob)
             if eot_logprob > speech_logprob:
                 break
             decoded_tokens.append(speech_token)
+            
+        # print(self.tokenizer.decode(decoded_tokens))
         return decoded_tokens
 
 
@@ -237,6 +264,8 @@ def decode_pcm(audio, model, task='transcribe', src_lang='en'):
         remainder = 480000 - segment.shape[0]
         segment = np.concatenate([segment, np.zeros([remainder]).astype(np.float32)])
         mel = model.mel_spectrogram(segment[np.newaxis])
+        # print("oups")
         tokens = model.decode_no_timestamps(mel, task, src_lang)
+        # print(model.tokenizer.decode(tokens))
         decoded += tokens
     return model.tokenizer.decode(decoded)

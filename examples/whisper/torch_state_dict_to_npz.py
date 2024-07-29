@@ -18,6 +18,9 @@ def main():
     pt_file = sys.argv[1]
     model = torch.load(pt_file)
     dims = {f'dims/{k}': v for k, v in model['dims'].items()}
+    #print size of model['dims']
+    # print("size of model['dims'].items():", len(model['dims'].items()))
+    print('dims.n_vocab:', model['dims']['n_vocab'])
     params = {f'params/{k}': v for k, v in model['model_state_dict'].items()}
     np.savez(sys.argv[2], **dims, **params)
 
