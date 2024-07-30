@@ -21,7 +21,12 @@ def main():
     #print size of model['dims']
     # print("size of model['dims'].items():", len(model['dims'].items()))
     print('dims.n_vocab:', model['dims']['n_vocab'])
+    print(dims)       
     params = {f'params/{k}': v for k, v in model['model_state_dict'].items()}
+    #打印model['model_state_dict'] 中的decoder.token_embedding.weight 的 dtype
+    print('params/decoder.token_embedding.weight dtype:', model['model_state_dict']['decoder.token_embedding.weight'].dtype)
+    # print(params.keys())
+    print('params/encoder.positional_embedding shape:', model['model_state_dict']['encoder.positional_embedding'].shape)  
     np.savez(sys.argv[2], **dims, **params)
 
 

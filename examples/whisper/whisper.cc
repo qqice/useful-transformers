@@ -136,6 +136,20 @@ inline void suppress(__fp16 *src, int begin, int end,
   }
 }
 
+inline void suppress16and32(__fp16 *src, float32_t *src2, int begin, int end,
+                     const std::vector<int> &tokens) {
+  // 0xfc00 is minus infinity for __fp16.
+  uint16_t neg_inf_u16 = 0xfc00;
+  __fp16 minus_inf = *(__fp16 *)&neg_inf_u16;
+  uint32_t neg_inf_u32 = 0xff800000;
+  float32_t minus_inf32 = *(float32_t *)&neg_inf_u32;
+  for (int token : tokens) {
+    if (token < begin || token >= end) continue;
+    src[token] = minus_inf;
+    src2[token] = minus_inf32;
+  }
+}
+
 void TextDecoder::get_logits(__fp16 *logits) {
 #pragma omp parallel sections
   {
@@ -174,6 +188,35 @@ void TextDecoder::log_softmax(__fp16 *logits,
   }
   __fp16 max = std::max(std::max(max0, max1), max2);
   ::log_softmax(logits, n_vocab, max);
+  // ::log_softmax32(logits, logits32, n_vocab, max);
+}
+
+void TextDecoder::log_softmax32(__fp16 *logits, float32_t *logits32,
+                                const std::vector<int> &suppress_tokens) {
+  __fp16 max0, max1, max2;
+#pragma omp parallel sections
+  {
+#pragma omp section
+    {
+      copy_C_to_fp16and32(&detokenizer0, logits, logits32, 1, n_vocab / 3);
+      suppress16and32(logits, logits32, 0, n_vocab / 3, suppress_tokens);
+      max0 = compute_max(logits, n_vocab / 3);
+    }
+#pragma omp section
+    {
+      copy_C_to_fp16and32(&detokenizer1, logits + n_vocab / 3,  logits32 + n_vocab / 3, 1, n_vocab / 3);
+      suppress16and32(logits, logits32, n_vocab / 3, 2 * n_vocab / 3, suppress_tokens);
+      max1 = compute_max(logits + n_vocab / 3, n_vocab / 3);
+    }
+#pragma omp section
+    {
+      copy_C_to_fp16and32(&detokenizer2, logits + 2 * n_vocab / 3,  logits32 + 2 * n_vocab / 3, 1, n_vocab / 3);
+      suppress16and32(logits, logits32, 2 * n_vocab / 3, n_vocab, suppress_tokens);
+      max2 = compute_max(logits + 2 * n_vocab / 3, n_vocab / 3);
+    }
+  }
+  __fp16 max = std::max(std::max(max0, max1), max2);
+  ::log_softmax32(logits, logits32, n_vocab, max);
 }
 
 WhisperModel::WhisperModel(int n_mels, int n_audio_ctx, int n_audio_state,

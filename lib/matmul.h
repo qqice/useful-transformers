@@ -98,6 +98,7 @@ struct Matmul {
 
   void zero_A();
   void zero_B();
+  void zero_C();
   void copy_B_to_B(Matmul *other);
 
   struct Slice {

@@ -64,6 +64,7 @@ PYBIND11_MODULE(pybind_whisper, m) {
   m.doc() = "Whisper speech to text converter";
   using numpy_float_array = py::array_t<float, py::array::c_style>;
   using numpy_uint16_array = py::array_t<uint16_t, py::array::c_style>;
+  using numpy_uint32_array = py::array_t<uint32_t, py::array::c_style>;
 
   py::class_<AudioEncoder>(m, "AudioEncoder")
       .def(py::init<int, int, int, int>())
@@ -330,6 +331,21 @@ PYBIND11_MODULE(pybind_whisper, m) {
              __fp16 *y_ptr = static_cast<__fp16 *>(y.request().ptr);
 
              decoder->log_softmax(y_ptr, suppress_tokens);
+             return y.reshape({n_vocab});
+           })
+        .def("log_softmax32",
+           [](WhisperModel &model,
+              const std::vector<int> &suppress_tokens) -> numpy_uint32_array {
+             int n_vocab = model.n_vocab;
+             TextDecoder *decoder = &model.decoder;
+
+             auto y16 = numpy_uint16_array(n_vocab);
+             __fp16 *y_ptr16 = static_cast<__fp16 *>(y16.request().ptr);
+
+             auto y = numpy_uint32_array(n_vocab);
+             float32_t *y_ptr = static_cast<float32_t *>(y.request().ptr);
+
+             decoder->log_softmax32(y_ptr16, y_ptr, suppress_tokens);
              return y.reshape({n_vocab});
            });
 }

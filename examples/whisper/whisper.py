@@ -98,14 +98,17 @@ def set_decoder_params(model, p, dims):
 
     model.set_decoder_ln_gamma(p[f'decoder.ln.weight'])
     model.set_decoder_ln_beta(p[f'decoder.ln.bias'])
+    print(p['decoder.token_embedding.weight'].dtype)
     Wdetokenizer = p[f'decoder.token_embedding.weight'].T
     # print(Wdetokenizer.shape)
-    n_vocab = next_multiple_of_3(dims.n_vocab)
+    n_vocab = next_multiple_of_3(dims.n_vocab-1)
+    print(f'Vocab size: {n_vocab} {next_multiple_of_3(dims.n_vocab)}')
     slice_len = n_vocab // 3
+    print(f'Slice length: {slice_len}')
     model.set_detokenizer0(Wdetokenizer[:, :slice_len])
     model.set_detokenizer1(Wdetokenizer[:, slice_len:2*slice_len])
-    extra_columns = n_vocab - dims.n_vocab
-    third_slice = Wdetokenizer[:, 2*slice_len:]
+    extra_columns = n_vocab - dims.n_vocab + 1
+    third_slice = Wdetokenizer[:, 2*slice_len:-1]
     print(extra_columns)
     print(third_slice.shape)
     if extra_columns:
@@ -124,7 +127,8 @@ class WhisperModel(object):
         dims = ModelDimensions(**dims)
         #print dims
         print(f'Loading model with dimensions {dims}')
-        n_vocab = next_multiple_of_3(dims.n_vocab)
+        n_vocab = next_multiple_of_3(dims.n_vocab-1)
+        print(f'Vocab size: {n_vocab} {next_multiple_of_3(dims.n_vocab)}')
         self.model = CWhisperModel(dims.n_mels,
                                    dims.n_audio_ctx,
                                    dims.n_audio_state,
@@ -181,7 +185,7 @@ class WhisperModel(object):
             tokenizer.no_speech,
             tokenizer.no_timestamps] + list(tokenizer.non_speech_tokens)
         # Suppress padding tokens.
-        for i in range(self.dims.n_vocab, next_multiple_of_3(self.dims.n_vocab)):
+        for i in range(self.dims.n_vocab-1, next_multiple_of_3(self.dims.n_vocab-1)):
           suppress_tokens_sans_no_speech += [i]
 
         suppress_tokens = suppress_tokens_sans_no_speech + [tokenizer.no_speech]
@@ -190,6 +194,7 @@ class WhisperModel(object):
         self.model.reset(mel)
 
         initial_prompt = list(tokenizer.sot_sequence_including_notimestamps)
+
         if self.multilingual:
             assert src_lang in self.lang_dict, f'{src_lang} is not a supported language'
             initial_prompt[1] = self.lang_dict[src_lang]
@@ -197,7 +202,7 @@ class WhisperModel(object):
             
             # if src_lang == 'zh' and task == 'transcribe': 
             #     initial_prompt2 = initial_prompt.copy()
-            #     initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + '小爱机器人。赤兔机器人。开始充电。停止导航。结束。开始。我是谁。intel的。M系列。'.strip())))
+            #     initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + '小爱机器人。赤兔机器人。开始充电。停止导航。结束。开始。我是谁。intel的机器。M系列。'.strip())))
                                       
             #     initial_prompt.extend(initial_prompt2)
             #     # initial_prompt.extend(tuple(self.tokenizer.encode('以下的是普通话的句子，'.strip())))

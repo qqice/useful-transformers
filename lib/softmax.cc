@@ -213,3 +213,74 @@ void softmax_C_to_A(Matmul *src, Matmul *dst, int rows, int cols)
     }
   }
 }
+
+void log_softmax32(__fp16* src, float* target, int N, __fp16 max)
+{
+  int i;
+  float sum = 0.0;
+  for (i = 0; i < N - (N % 8); i += 8)
+  {
+    auto v = vld1q_f16(src + i);
+    v = vsubq_f16(v, vdupq_n_f16(max));
+    sum += exp_lut(vgetq_lane_f16(v, 0));
+    sum += exp_lut(vgetq_lane_f16(v, 1));
+    sum += exp_lut(vgetq_lane_f16(v, 2));
+    sum += exp_lut(vgetq_lane_f16(v, 3));
+    sum += exp_lut(vgetq_lane_f16(v, 4));
+    sum += exp_lut(vgetq_lane_f16(v, 5));
+    sum += exp_lut(vgetq_lane_f16(v, 6));
+    sum += exp_lut(vgetq_lane_f16(v, 7));
+  }
+  if (N % 8 != 0)
+  {
+    for (int rem_i = 0; rem_i < N - i; ++rem_i)
+    {
+      sum += exp_lut(src[i + rem_i] - max);
+    }
+  }
+  float log_sum = std::log(sum);
+  float subtrahend = log_sum + max;
+  for (i = 0; i < N - (N % 4); i += 4)
+  {
+    auto v = vld1q_f32(target + i);
+    v = vsubq_f32(v, vdupq_n_f32(subtrahend));
+    vst1q_f32(target + i, v);
+  }
+  if (N % 4 != 0)
+  {
+    for (int rem_i = 0; rem_i < N - i; ++rem_i)
+    {
+      target[i + rem_i] -= subtrahend;
+    }
+  }
+}
+
+void copy_C_to_fp16and32(Matmul *src, __fp16 *dst1, float32_t *dst2, int rows, int cols)
+{
+  float32_t *C = src->get_C_ptr();
+  int i = 0;
+  for (i = 0; i < cols - (cols % 4); i += 4)
+  {
+    float32_t *block_base = C + (src->M * 4) * (i / 4);
+    for (int j = 0; j < rows; ++j)
+    {
+      auto v = vld1q_f32(block_base + j * 4);
+      auto v_f16 = vcvt_f16_f32(v);
+      vst1_f16(dst1 + j * cols + i, v_f16);
+      memcpy(dst2 + j * cols + i, block_base + j * 4, 4 * sizeof(float32_t));
+    }
+  }
+
+  if (cols % 4 != 0)
+  {
+    float32_t *block_base = C + (src->M * 4) * (i / 4);
+    for (int j = 0; j < rows; ++j)
+    {
+      for (int rem_i = 0; rem_i < cols - i; ++rem_i)
+      {
+        dst1[j * cols + i + rem_i] = block_base[rem_i + j * 4];
+        dst2[j * cols + i + rem_i] = block_base[rem_i + j * 4];
+      }
+    }
+  }
+}

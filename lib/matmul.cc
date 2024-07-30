@@ -52,6 +52,7 @@ Matmul::Matmul(int M, int K, int N, int core) : M(M), K(K), N(N) {
 
   zero_A();
   zero_B();
+  zero_C();
 }
 
 Matmul::~Matmul() {
@@ -66,6 +67,10 @@ void Matmul::zero_A() { memset(get_A_ptr(), 0, sizeof(__fp16) * M * K_padded); }
 
 void Matmul::zero_B() {
   memset(get_B_ptr(), 0, sizeof(__fp16) * K_padded * N_padded);
+}
+
+void Matmul::zero_C() {
+  memset(get_C_ptr(), 0, sizeof(float) * M * N_padded);
 }
 
 void Matmul::copy_B_to_B(Matmul* other) {
