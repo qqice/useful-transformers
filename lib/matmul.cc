@@ -2,6 +2,9 @@
 
 #include <cassert>
 #include <cstring>
+#include <vector>
+#include <stdio.h>
+using namespace std;
 
 Matmul::Matmul(int M, int K, int N, int core) : M(M), K(K), N(N) {
   K_padded = NEXT_MULTIPLE_OF_32(K);
@@ -85,7 +88,12 @@ void Matmul::copy_B_to_B(Matmul* other) {
 void Matmul::copy_C_to_A(Matmul* other, Slice slice) {
   for (int i = 0; i < slice.n_rows; ++i) {
     for (int j = 0; j < slice.n_cols; ++j) {
-      other->A_at(i + slice.dst_row_offset, j + slice.dst_col_offset) =
+      // float c_value = C_at(i + slice.src_row_offset, j + slice.src_col_offset);
+      // if(std::isnan(c_value) || std::isinf(c_value) ||std::fabs(c_value)>65503)
+      // {
+      //   printf("c_value ctoa: %f\n",c_value);
+      // }
+      other->A_at(i + slice.dst_row_offset, j + slice.dst_col_offset) = //c_value;
           C_at(i + slice.src_row_offset, j + slice.src_col_offset);
     }
   }
@@ -94,7 +102,12 @@ void Matmul::copy_C_to_A(Matmul* other, Slice slice) {
 void Matmul::copy_C_to_Bt(Matmul* other, Slice slice) {
   for (int i = 0; i < slice.n_rows; ++i) {
     for (int j = 0; j < slice.n_cols; ++j) {
-      other->B_at(j + slice.dst_col_offset, i + slice.dst_row_offset) =
+      // float c_value = C_at(i + slice.src_row_offset, j + slice.src_col_offset);
+      // if(std::isnan(c_value) || std::isinf(c_value) ||std::fabs(c_value)>65503)
+      // {
+      //   printf("c_value ctobt: %f\n",c_value);
+      // }
+      other->B_at(j + slice.dst_col_offset, i + slice.dst_row_offset) = //c_value;
           C_at(i + slice.src_row_offset, j + slice.src_col_offset);
     }
   }
@@ -103,7 +116,12 @@ void Matmul::copy_C_to_Bt(Matmul* other, Slice slice) {
 void Matmul::copy_C_to_B(Matmul* other, Slice slice) {
   for (int i = 0; i < slice.n_rows; ++i) {
     for (int j = 0; j < slice.n_cols; ++j) {
-      other->B_at(i + slice.dst_row_offset, j + slice.dst_col_offset) =
+      // float c_value = C_at(i + slice.src_row_offset, j + slice.src_col_offset);
+      // if(std::isnan(c_value) || std::isinf(c_value) ||std::fabs(c_value)>65503)
+      // {
+      //   printf("c_value ctob: %f\n",c_value);
+      // }
+      other->B_at(i + slice.dst_row_offset, j + slice.dst_col_offset) = //c_value;
           C_at(i + slice.src_row_offset, j + slice.src_col_offset);
     }
   }
@@ -120,3 +138,33 @@ void Matmul::call() {
   ret = rknn_matmul_run(ctx);
   assert(ret >= 0 && "matmul launch failed\n");
 }
+
+// void Matmul::call() {
+//   printf("oups call %d %d %d\n",M,K,N);
+//   // Create a new matrix to store the result
+//   std::vector<std::vector<float>> C_result(M, std::vector<float>(N_padded, 0));
+
+//   // Perform the matrix multiplication
+//   for (int i = 0; i < M; ++i) {
+//     for (int j = 0; j < N_padded; ++j) {
+//       for (int k = 0; k < K_padded; ++k) {
+//         float a = A_at(i, k);
+//         float b = B_at(k, j);
+//         float c = a*b; 
+//         C_result[i][j] += c;
+//         // //判读c是否为nan或溢出
+//         // if(std::isnan(c) || std::fabs(c)>65503)
+//         // {
+//         //   printf("Matmul::call(): %f\n",c);
+//         // }
+//       }
+//     }
+//   }
+
+//   // Copy the result back to the original C matrix
+//   for (int i = 0; i < M; ++i) {
+//     for (int j = 0; j < N_padded; ++j) {
+//       C_at(i, j) = C_result[i][j];
+//     }
+//   }
+// }

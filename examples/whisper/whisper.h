@@ -55,6 +55,7 @@ struct TextDecoder {
               int n_audio_ctx, int n_vocab);
   void call(int prompt);
   void get_logits(__fp16* logits);
+  void get_logits32(float* logits, const std::vector<int>& suppress_tokens);
   void log_softmax(__fp16* dst, const std::vector<int>& suppress_tokens);
   void log_softmax32(__fp16* dst1, float *dst2, const std::vector<int>& suppress_tokens);
 };

@@ -7,9 +7,9 @@ set(SOURCE_FILES
 )
   
 add_library(whisper SHARED STATIC ${SOURCE_FILES})
-target_include_directories(whisper PRIVATE ${PROJECT_SOURCE_DIR}/lib)
+target_include_directories(whisper PRIVATE ${PROJECT_SOURCE_DIR}/lib ${pybind11_INCLUDE_DIR} ${Python_INCLUDE_DIRS})
 target_link_libraries(whisper
-  PRIVATE ctransformer
+  PRIVATE ctransformer pybind11::module
 )
 
 pybind11_add_module(pybind_whisper MODULE pybind_whisper.cc)

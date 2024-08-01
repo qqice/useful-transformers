@@ -4,6 +4,8 @@ import time
 import numpy as np
 from dataclasses import dataclass
 from .tokenizer import get_tokenizer
+# import torch.nn.functional as F
+# import torch
 
 import ctypes
 # Load this here explicitly into the process, so importing pybind_whisper
@@ -98,37 +100,27 @@ def set_decoder_params(model, p, dims):
 
     model.set_decoder_ln_gamma(p[f'decoder.ln.weight'])
     model.set_decoder_ln_beta(p[f'decoder.ln.bias'])
-    print(p['decoder.token_embedding.weight'].dtype)
     Wdetokenizer = p[f'decoder.token_embedding.weight'].T
-    # print(Wdetokenizer.shape)
     n_vocab = next_multiple_of_3(dims.n_vocab-1)
-    print(f'Vocab size: {n_vocab} {next_multiple_of_3(dims.n_vocab)}')
     slice_len = n_vocab // 3
-    print(f'Slice length: {slice_len}')
     model.set_detokenizer0(Wdetokenizer[:, :slice_len])
     model.set_detokenizer1(Wdetokenizer[:, slice_len:2*slice_len])
     extra_columns = n_vocab - dims.n_vocab + 1
     third_slice = Wdetokenizer[:, 2*slice_len:-1]
-    print(extra_columns)
-    print(third_slice.shape)
     if extra_columns:
         third_slice = np.concatenate([third_slice, np.zeros_like(third_slice[:, :extra_columns])], -1)
-    print(third_slice.shape)
     model.set_detokenizer2(third_slice)
 
 
 class WhisperModel(object):
-    def __init__(self, model='tiny.en', verbose=True):
+    def __init__(self, model='tiny.en', verbose=False):
         params_file = os.path.join(os.path.dirname(__file__), "weights", f"{model}.npz")
         params_file = np.load(params_file)
         dims = {k.split('/')[-1]:v for k, v in params_file.items() if k.startswith('dims/')}
         params = {k.split('/')[-1]:v for k, v in params_file.items() if k.startswith('params/')}
 
         dims = ModelDimensions(**dims)
-        #print dims
-        print(f'Loading model with dimensions {dims}')
         n_vocab = next_multiple_of_3(dims.n_vocab-1)
-        print(f'Vocab size: {n_vocab} {next_multiple_of_3(dims.n_vocab)}')
         self.model = CWhisperModel(dims.n_mels,
                                    dims.n_audio_ctx,
                                    dims.n_audio_state,
@@ -176,46 +168,70 @@ class WhisperModel(object):
 
     def decode_no_timestamps(self, mel, task='transcribe', src_lang='en'):
         tokenizer = self.tokenizer
-        suppress_tokens_sans_no_speech = [
-            tokenizer.transcribe,
-            tokenizer.translate,
-            tokenizer.sot,
-            tokenizer.sot_prev,
-            tokenizer.sot_lm,
-            tokenizer.no_speech,
-            tokenizer.no_timestamps] + list(tokenizer.non_speech_tokens)
+        suppress_tokens_sans_no_speech = list(tokenizer.non_speech_tokens) + [
+                self.tokenizer.transcribe,
+                self.tokenizer.translate,
+                self.tokenizer.sot,
+                self.tokenizer.sot_prev,
+                self.tokenizer.sot_lm,
+            ]
         # Suppress padding tokens.
         for i in range(self.dims.n_vocab-1, next_multiple_of_3(self.dims.n_vocab-1)):
           suppress_tokens_sans_no_speech += [i]
 
         suppress_tokens = suppress_tokens_sans_no_speech + [tokenizer.no_speech]
+        suppress_tokens = list(sorted(set(suppress_tokens)))
         initial_suppress_tokens = suppress_tokens + tokenizer.encode(' ') + [tokenizer.eot]
 
         self.model.reset(mel)
+        #audio_features = self.model.get_audio_features().view(np.float32)
+        #print(f"audio_features shape {audio_features.shape}")
+        #save_path = 'audio_features_wrong.npy'
+        #np.save(save_path, audio_features)
+        
+        # load_path = 'audio_features_ok.npy'
+        # audio_features_load = np.load(load_path)
+        # audio_features = self.model.set_audio_features(audio_features_load)
 
         initial_prompt = list(tokenizer.sot_sequence_including_notimestamps)
+        #initial_prompt = list(tokenizer.sot_sequence)
 
         if self.multilingual:
             assert src_lang in self.lang_dict, f'{src_lang} is not a supported language'
             initial_prompt[1] = self.lang_dict[src_lang]
             if task == 'translate': initial_prompt[2] = self.tokenizer.translate
             
-            # if src_lang == 'zh' and task == 'transcribe': 
-            #     initial_prompt2 = initial_prompt.copy()
-            #     initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + '小爱机器人。赤兔机器人。开始充电。停止导航。结束。开始。我是谁。intel的机器。M系列。'.strip())))
+            if src_lang == 'zh' and task == 'transcribe': 
+                initial_prompt2 = initial_prompt.copy()
+                initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + 'Hello,你是谁,赤兔机器人，开始充电，暂停任务，开始导航，停止充电，继续任务，停止导航。'.strip())))
                                       
-            #     initial_prompt.extend(initial_prompt2)
-            #     # initial_prompt.extend(tuple(self.tokenizer.encode('以下的是普通话的句子，'.strip())))
+                initial_prompt.extend(initial_prompt2)
+                # initial_prompt.extend(tuple(self.tokenizer.encode('以下的是普通话的句子，'.strip())))
             
         if self.verbose:
             print(f'{initial_prompt} {self.tokenizer.decode(initial_prompt)}')
         for p in initial_prompt:
             self.model.call_no_copy(p)
 
-        logprobs = self.model.log_softmax(initial_suppress_tokens).view(np.float16)
-
+        # logprobs = self.model.log_softmax(initial_suppress_tokens).view(np.float16)
+        logprobs = self.model.get_logits32(initial_suppress_tokens).view(np.float32)
         decoded_tokens = [np.argmax(logprobs)]
-        # print(decoded_tokens)
+        # decoded_tokens = [50364, 25597,   338,  1546, 37960, 34386,  1654]
+        # print(f'timestamp_begin  {self.tokenizer.timestamp_begin}')
+        # test_tokens = [50364, 25597,   338,  1546, 37960, 34386]
+        # for p in test_tokens:
+        #     self.model.call_no_copy(p)
+        # print(f'test_tokens  {self.tokenizer.decode(test_tokens)}')
+        
+        # logits = self.model.get_logits32(initial_suppress_tokens).view(np.float32)
+        # #将logits转换为tensor
+        # logits = torch.tensor(logits)
+        # # print(logits.shape)
+        # logprobs = F.log_softmax(logits, dim=-1)
+        # decoded_tokens = [torch.argmax(logprobs).item()]
+               
+        #print(decoded_tokens)
+        # print("{:.6f}".format(logprobs[decoded_tokens[0]].item()))
         # print(len(logprobs))
         # print(logprobs[51865])
         # print(logprobs[51866])
@@ -223,22 +239,43 @@ class WhisperModel(object):
         # print(self.tokenizer.decode(decoded_tokens))
         # print(self.tokenizer.decode(initial_suppress_tokens))
         
-
-        while len(decoded_tokens) < 224:
+        while len(decoded_tokens) < 120:
             self.model.call_no_copy(decoded_tokens[-1])
-            logprobs = self.model.log_softmax(suppress_tokens).view(np.float16)
+            
+            # logprobs = self.model.log_softmax(suppress_tokens).view(np.float16)
+            logprobs = self.model.get_logits32(suppress_tokens).view(np.float32)
+            
             speech_token = np.argmax(logprobs[:tokenizer.eot])
-            # print([speech_token])
-            # print(self.tokenizer.decode([speech_token]))
             speech_logprob = logprobs[speech_token]
             eot_logprob = logprobs[tokenizer.eot]
-            # print(speech_logprob)
-            # print(eot_logprob)
+            
+            # logits = self.model.get_logits32(suppress_tokens).view(np.float32)
+            # #将logits转换为tensor
+            # logits = torch.tensor(logits)
+            # logprobs = F.log_softmax(logits, dim=-1)
+            # speech_token = torch.argmax(logprobs[:tokenizer.eot]).item()
+            # speech_logprob = logprobs[speech_token].item()
+            # eot_logprob = logprobs[tokenizer.eot].item()
+
             if eot_logprob > speech_logprob:
                 break
+            
+            #print(speech_token)
             decoded_tokens.append(speech_token)
             
-        # print(self.tokenizer.decode(decoded_tokens))
+            if len(decoded_tokens) >= 4 and decoded_tokens[-1] == decoded_tokens[-2] == decoded_tokens[-3] == decoded_tokens[-4]:
+                print(f'Breaking because of repetition1')
+                break
+            elif len(decoded_tokens) >= 8 and decoded_tokens[-1] == decoded_tokens[-3] == decoded_tokens[-5] == decoded_tokens[-7]:
+                print(f'Breaking because of repetition2')
+                break
+            elif len(decoded_tokens) >= 11 and decoded_tokens[-1] == decoded_tokens[-4] == decoded_tokens[-7] == decoded_tokens[-10]:
+                print(f'Breaking because of repetition3')
+                break
+            elif len(decoded_tokens) >= 14 and decoded_tokens[-1] == decoded_tokens[-5] == decoded_tokens[-9] == decoded_tokens[-13]:
+                print(f'Breaking because of repetition4')
+                break
+            
         return decoded_tokens
 
 
@@ -269,8 +306,22 @@ def decode_pcm(audio, model, task='transcribe', src_lang='en'):
         remainder = 480000 - segment.shape[0]
         segment = np.concatenate([segment, np.zeros([remainder]).astype(np.float32)])
         mel = model.mel_spectrogram(segment[np.newaxis])
-        # print("oups")
+        ##将mel保存为mel_wrong.npy文件
+        #print(f'mel.shape {mel.shape}')
+        #save_path = 'mel_wrong.npy'
+        #np.save(save_path, mel)
+        
+        # load_path = 'mel_ok.npy'
+        # mel_load = np.load(load_path)
+        # mel = np.reshape(mel_load, [1, mel_load.shape[0], mel_load.shape[1]])
+        
+        
+        start_time = time.time()
+
         tokens = model.decode_no_timestamps(mel, task, src_lang)
-        # print(model.tokenizer.decode(tokens))
+
+        end_time = time.time()
+
+        print(f"Model Execution time: {end_time - start_time} seconds")
         decoded += tokens
     return model.tokenizer.decode(decoded)

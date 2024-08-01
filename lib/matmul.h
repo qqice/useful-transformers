@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
-
+#include <cstdio>
 #include "rknn_matmul_api.h"
 
 #define NEXT_MULTIPLE_OF_32(x) (((x) + 31) & ~31)
@@ -63,6 +63,10 @@ struct Matmul {
     for (int i = 0; i < M; ++i) {
       for (int j = 0; j < K; ++j) {
         A_at(i, j) = src[i * K + j];
+        // if(std::isnan(src[i * K + j]) || std::isinf(src[i * K + j]) ||std::fabs(src[i * K + j])>65503)
+        // {
+        //   printf("set_A: \n");
+        // }
       }
     }
   }
@@ -73,6 +77,10 @@ struct Matmul {
     for (int i = 0; i < num_rows; ++i) {
       for (int j = 0; j < K; ++j) {
         A_at(i, j) = src[i * K + j];
+        // if(std::isnan(src[i * K + j]) || std::isinf(src[i * K + j]) ||std::fabs(src[i * K + j])>65503)
+        // {
+        //   printf("set_A2: \n");
+        // }
       }
     }
   }
@@ -83,6 +91,10 @@ struct Matmul {
     for (int i = 0; i < K; ++i) {
       for (int j = 0; j < N; ++j) {
         B_at(i, j) = src[i * N + j];
+        // if(std::isnan(src[i * N + j]) || std::isinf(src[i * N + j]) ||std::fabs(src[i * N + j])>=65503)
+        // {
+        //   printf("set_B: \n");
+        // }
       }
     }
   }

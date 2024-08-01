@@ -290,6 +290,16 @@ PYBIND11_MODULE(pybind_whisper, m) {
                decoder->blocks.blocks[i]->reset();
              }
            })
+      .def("set_audio_features",
+           [](WhisperModel &model, numpy_float_array audio_features) {
+             TextDecoder *decoder = &model.decoder;
+             const float *data = static_cast<const float *>(audio_features.request().ptr);
+             int n_text_layer = model.n_text_layer;
+             for (int i = 0; i < n_text_layer; ++i) {
+               decoder->blocks.blocks[i]->cross_attn.K.set_A(data);
+               decoder->blocks.blocks[i]->reset();
+             }
+           })
       .def("call",
            [](WhisperModel &model, int prompt) -> numpy_float_array {
              TextDecoder *decoder = &model.decoder;
@@ -321,6 +331,27 @@ PYBIND11_MODULE(pybind_whisper, m) {
              decoder->get_logits(y_ptr);
              return y.reshape({n_vocab});
            })
+      .def("get_logits32",
+           [](WhisperModel &model,
+              const std::vector<int> &suppress_tokens) -> numpy_uint32_array {
+             int n_vocab = model.n_vocab;
+             TextDecoder *decoder = &model.decoder;
+             auto y = numpy_uint32_array(n_vocab);
+             float *y_ptr = static_cast<float *>(y.request().ptr);
+             decoder->get_logits32(y_ptr, suppress_tokens);
+             return y.reshape({n_vocab});
+           })
+      .def("get_audio_features",
+          [](WhisperModel &model) -> numpy_float_array {
+            AudioEncoder *enc = &model.encoder;
+            int last_layer_idx = enc->blocks.blocks.size() - 1;
+            int sz = enc->n_ctx * enc->n_state;
+            auto y = numpy_float_array(sz);
+            float *y_ptr = static_cast<float *>(y.request().ptr);
+            for (int i = 0; i < sz; ++i)
+                y_ptr[i] = enc->blocks.blocks[last_layer_idx]->y[i];
+            return y.reshape({1,enc->n_ctx, enc->n_state});
+          })
       .def("log_softmax",
            [](WhisperModel &model,
               const std::vector<int> &suppress_tokens) -> numpy_uint16_array {

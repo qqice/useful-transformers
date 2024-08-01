@@ -32,6 +32,29 @@ namespace
       return to_f16(lut[u16]);
     }
   } exp_lut;
+   
+  // struct _exp_lut32
+  // {
+  //     static constexpr int LUT_SIZE = 1 << 31;
+  //     uint32_t lut[LUT_SIZE];
+
+  //     _exp_lut()
+  //     {
+  //         for (int i = 0; i < LUT_SIZE; ++i)
+  //         {
+  //             uint32_t x = i | 0x80000000;
+  //             float y = std::exp(to_f32(x));
+  //             lut[i] = to_u32(y);
+  //         }
+  //     }
+
+  //     float operator()(float x) const
+  //     {
+  //         uint32_t u32 = to_u32(x);
+  //         u32 = u32 & 0x7FFFFFFF;
+  //         return to_f32(lut[u32]);
+  //     }
+  // } exp_lut32;
 
 } // namespace
 
@@ -284,3 +307,66 @@ void copy_C_to_fp16and32(Matmul *src, __fp16 *dst1, float32_t *dst2, int rows, i
     }
   }
 }
+
+void copy_C_to_fp32(Matmul *src, float32_t *dst, int rows, int cols)
+{
+  float32_t *C = src->get_C_ptr();
+  int i = 0;
+  for (i = 0; i < cols - (cols % 4); i += 4)
+  {
+    float32_t *block_base = C + (src->M * 4) * (i / 4);
+    for (int j = 0; j < rows; ++j)
+    {
+      memcpy(dst + j * cols + i, block_base + j * 4, 4 * sizeof(float32_t));
+    }
+  }
+
+  if (cols % 4 != 0)
+  {
+    float32_t *block_base = C + (src->M * 4) * (i / 4);
+    for (int j = 0; j < rows; ++j)
+    {
+      for (int rem_i = 0; rem_i < cols - i; ++rem_i)
+      {
+        dst[j * cols + i + rem_i] = block_base[rem_i + j * 4];
+      }
+    }
+  }
+}
+
+// void log_softmax32(float32_t* src, int N, float max)
+// {
+//   int i;
+//   float sum = 0.0;
+//   for (i = 0; i < N - (N % 4); i += 8)
+//   {
+//     auto v = vld1q_f32(src + i);
+//     v = vsubq_f32(v, vdupq_n_f32(max));
+//     sum += exp_lut32(vgetq_lane_f32(v, 0));
+//     sum += exp_lut32(vgetq_lane_f32(v, 1));
+//     sum += exp_lut32(vgetq_lane_f32(v, 2));
+//     sum += exp_lut32(vgetq_lane_f32(v, 3));
+//   }
+//   if (N % 4 != 0)
+//   {
+//     for (int rem_i = 0; rem_i < N - i; ++rem_i)
+//     {
+//       sum += exp_lut32(src[i + rem_i] - max);
+//     }
+//   }
+//   float log_sum = std::log(sum);
+//   float subtrahend = log_sum + max;
+//   for (i = 0; i < N - (N % 4); i += 4)
+//   {
+//     auto v = vld1q_f32(src + i);
+//     v = vsubq_f32(v, vdupq_n_f32(subtrahend));
+//     vst1q_f32(src + i, v);
+//   }
+//   if (N % 4 != 0)
+//   {
+//     for (int rem_i = 0; rem_i < N - i; ++rem_i)
+//     {
+//       src[i + rem_i] -= subtrahend;
+//     }
+//   }
+// }
