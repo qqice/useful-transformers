@@ -7,10 +7,12 @@ The easiest way to try out Whisper transcription is to install the [release](htt
 
     # Preferably inside a virtual environment
     $ python -m pip install https://github.com/usefulsensors/useful-transformers/releases/download/0.1_rk3588/useful_transformers-0.1-cp310-cp310-linux_aarch64.whl
+    $ ./venv/bin/pip install  ./useful-transformers  -i https://pypi.mirrors.ustc.edu.cn/simple
 
  Try transcribing a wav file.
 
-    $ taskset -c 4-7 python -m useful_transformers.transcribe_wav <wav_file>
+    $ taskset -c 4-7 python -m useful_transformers.transcribe_wav <wav_file> modelname languge
+    $ taskset -c 4-7 ./venv/bin/python -m useful_transformers.transcribe_wav ./wav/hunhe.wav base.wenet zh
 
 If you don't have a wav file handy, running the above command will transcribe an example provided in the package.
 
