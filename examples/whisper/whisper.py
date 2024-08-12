@@ -138,8 +138,8 @@ class WhisperModel(object):
         self.multilingual = not model.endswith('.en')
         self.tokenizer = get_tokenizer(multilingual=self.multilingual)
         self.lang_dict = dict(zip(self.tokenizer.all_language_codes, self.tokenizer.all_language_tokens))
-        assert os.sched_getaffinity(os.getpid()) == set([4, 5, 6, 7]), (
-            f'Should be run with taskset -c4-7')
+        # assert os.sched_getaffinity(os.getpid()) == set([4, 5, 6, 7]), (
+        #     f'Should be run with taskset -c4-7')
 
         assets_dir = os.path.join(os.path.dirname(__file__), "assets")
         self.N_FFT = 400
@@ -184,83 +184,34 @@ class WhisperModel(object):
         initial_suppress_tokens = suppress_tokens + tokenizer.encode(' ') + [tokenizer.eot]
 
         self.model.reset(mel)
-        #audio_features = self.model.get_audio_features().view(np.float32)
-        #print(f"audio_features shape {audio_features.shape}")
-        #save_path = 'audio_features_wrong.npy'
-        #np.save(save_path, audio_features)
-        
-        # load_path = 'audio_features_ok.npy'
-        # audio_features_load = np.load(load_path)
-        # audio_features = self.model.set_audio_features(audio_features_load)
 
         initial_prompt = list(tokenizer.sot_sequence_including_notimestamps)
-        #initial_prompt = list(tokenizer.sot_sequence)
 
         if self.multilingual:
             assert src_lang in self.lang_dict, f'{src_lang} is not a supported language'
             initial_prompt[1] = self.lang_dict[src_lang]
             if task == 'translate': initial_prompt[2] = self.tokenizer.translate
-            
-            if src_lang == 'zh' and task == 'transcribe': 
-                initial_prompt2 = initial_prompt.copy()
-                initial_prompt = [self.tokenizer.sot_prev] + list(tuple(self.tokenizer.encode(' ' + 'Hello,你是谁,赤兔机器人，开始充电，暂停任务，开始导航，停止充电，继续任务，停止导航。'.strip())))
-                                      
-                initial_prompt.extend(initial_prompt2)
-                # initial_prompt.extend(tuple(self.tokenizer.encode('以下的是普通话的句子，'.strip())))
-            
+                
         if self.verbose:
             print(f'{initial_prompt} {self.tokenizer.decode(initial_prompt)}')
         for p in initial_prompt:
             self.model.call_no_copy(p)
 
-        # logprobs = self.model.log_softmax(initial_suppress_tokens).view(np.float16)
         logprobs = self.model.get_logits32(initial_suppress_tokens).view(np.float32)
         decoded_tokens = [np.argmax(logprobs)]
-        # decoded_tokens = [50364, 25597,   338,  1546, 37960, 34386,  1654]
-        # print(f'timestamp_begin  {self.tokenizer.timestamp_begin}')
-        # test_tokens = [50364, 25597,   338,  1546, 37960, 34386]
-        # for p in test_tokens:
-        #     self.model.call_no_copy(p)
-        # print(f'test_tokens  {self.tokenizer.decode(test_tokens)}')
-        
-        # logits = self.model.get_logits32(initial_suppress_tokens).view(np.float32)
-        # #将logits转换为tensor
-        # logits = torch.tensor(logits)
-        # # print(logits.shape)
-        # logprobs = F.log_softmax(logits, dim=-1)
-        # decoded_tokens = [torch.argmax(logprobs).item()]
-               
-        #print(decoded_tokens)
-        # print("{:.6f}".format(logprobs[decoded_tokens[0]].item()))
-        # print(len(logprobs))
-        # print(logprobs[51865])
-        # print(logprobs[51866])
-        # print(logprobs[tokenizer.eot])
-        # print(self.tokenizer.decode(decoded_tokens))
-        # print(self.tokenizer.decode(initial_suppress_tokens))
         
         while len(decoded_tokens) < 120:
             self.model.call_no_copy(decoded_tokens[-1])
-            
-            # logprobs = self.model.log_softmax(suppress_tokens).view(np.float16)
+
             logprobs = self.model.get_logits32(suppress_tokens).view(np.float32)
             
             speech_token = np.argmax(logprobs[:tokenizer.eot])
             speech_logprob = logprobs[speech_token]
             eot_logprob = logprobs[tokenizer.eot]
-            
-            # logits = self.model.get_logits32(suppress_tokens).view(np.float32)
-            # #将logits转换为tensor
-            # logits = torch.tensor(logits)
-            # logprobs = F.log_softmax(logits, dim=-1)
-            # speech_token = torch.argmax(logprobs[:tokenizer.eot]).item()
-            # speech_logprob = logprobs[speech_token].item()
-            # eot_logprob = logprobs[tokenizer.eot].item()
 
             if eot_logprob > speech_logprob:
                 break
-            
-            #print(speech_token)
+
             decoded_tokens.append(speech_token)
             
             if len(decoded_tokens) >= 4 and decoded_tokens[-1] == decoded_tokens[-2] == decoded_tokens[-3] == decoded_tokens[-4]:
@@ -275,7 +226,7 @@ class WhisperModel(object):
             elif len(decoded_tokens) >= 14 and decoded_tokens[-1] == decoded_tokens[-5] == decoded_tokens[-9] == decoded_tokens[-13]:
                 print(f'Breaking because of repetition4')
                 break
-            
+
         return decoded_tokens
 
 
@@ -287,6 +238,37 @@ def decode_wav_file(filename, model='tiny.en', task='transcribe', src_lang='en')
     assert w.getframerate() == 16000, f'Only 16kHz supported'
     frames = w.readframes(w.getnframes())
     audio = np.frombuffer(frames, dtype=np.int16)
+    model = WhisperModel(model)
+    return decode_pcm(audio, model, task, src_lang)
+
+
+def decode_mp4_file(filename, model='tiny.en', task='transcribe', src_lang='en'):
+    import wave
+    import audioread
+    from pydub import AudioSegment
+
+    # Load the mp4 file
+    with audioread.audio_open(filename) as f:
+        # assert f.channels == 2, f'Only two channels supported'
+        # assert f.samplerate == 48000, f'Only 48000Hz supported'
+
+        # Convert the audio to mono and resample it to 16000Hz
+        audio = AudioSegment.from_file(filename)
+        audio = audio.set_channels(1)
+        audio = audio.set_sample_width(2)
+        audio = audio.set_frame_rate(16000)
+
+        # Save the audio to a temporary wav file
+        audio.export("temp.wav", format="wav")
+
+    # Read the wav file
+    w = wave.open("temp.wav")
+    assert w.getnchannels() == 1, f'Only one channel supported'
+    assert w.getsampwidth() == 2, f'Datatype should be int16'
+    assert w.getframerate() == 16000, f'Only 16kHz supported'
+    frames = w.readframes(w.getnframes())
+    audio = np.frombuffer(frames, dtype=np.int16)
+    # Decode the audio using the WhisperModel
     model = WhisperModel(model)
     return decode_pcm(audio, model, task, src_lang)
 
@@ -306,22 +288,9 @@ def decode_pcm(audio, model, task='transcribe', src_lang='en'):
         remainder = 480000 - segment.shape[0]
         segment = np.concatenate([segment, np.zeros([remainder]).astype(np.float32)])
         mel = model.mel_spectrogram(segment[np.newaxis])
-        ##将mel保存为mel_wrong.npy文件
-        #print(f'mel.shape {mel.shape}')
-        #save_path = 'mel_wrong.npy'
-        #np.save(save_path, mel)
-        
-        # load_path = 'mel_ok.npy'
-        # mel_load = np.load(load_path)
-        # mel = np.reshape(mel_load, [1, mel_load.shape[0], mel_load.shape[1]])
-        
-        
         start_time = time.time()
-
         tokens = model.decode_no_timestamps(mel, task, src_lang)
-
         end_time = time.time()
-
         print(f"Model Execution time: {end_time - start_time} seconds")
         decoded += tokens
     return model.tokenizer.decode(decoded)
